@@ -1,0 +1,5 @@
+torch
+numpy
+loguru
+git+https://github.com/mattloper/chumpy
+trimesh
