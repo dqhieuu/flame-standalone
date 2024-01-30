@@ -23,6 +23,7 @@ import loguru
 import numpy as np
 import torch
 import torch.nn as nn
+import os
 
 from lbs import lbs, batch_rodrigues, vertices2landmarks, rot_mat_to_euler
 
@@ -39,9 +40,36 @@ def to_np(array, dtype=np.float32):
 
 
 class Struct(object):
-    def __init__(self, **kwargs):
+    def __init__(self, convert_to_numpy = False, **kwargs):
+        print('len = ', len(kwargs.items()))
+        np_arrays = {}
         for key, val in kwargs.items():
+            if convert_to_numpy and not isinstance(val, str) and not isinstance(val, np.ndarray):
+                val = to_np(val)
+
+            # if isinstance(val, str):
+            #     print(key, val, '------------')
+            # else:
+            #     print(key, type(val), val.shape if hasattr(val, 'shape') else None)
+
+            
             setattr(self, key, val)
+            np_arrays[key] = val
+            # save to files
+            # if not isinstance(val, str):
+            #     file = f'./mini/{key}.npy'
+            #     os.makedirs(os.path.dirname(file), exist_ok=True)
+            #     with open(file, 'wb') as f:
+            #         np.save(f, val)
+        print(np_arrays.keys())
+        np.savez('model.npz',**np_arrays)
+        np.savez_compressed('model_com.npz',**np_arrays)
+        # check npz file
+        data = np.load('./mini/com.npz',allow_pickle=True)
+        print(type(data))
+        print(data.files)
+        for key in data:
+            print(key, type(data[key]))
 
 
 class FLAME(nn.Module):
@@ -59,7 +87,7 @@ class FLAME(nn.Module):
 
         with open(self.cfg.flame_model_path, 'rb') as f:
             ss = pickle.load(f, encoding='latin1')
-            flame_model = Struct(**ss)
+            flame_model = Struct(True, **ss)
 
         self.optimize_basis = optimize_basis
         self.dtype = torch.float32
@@ -355,11 +383,9 @@ if __name__ == '__main__':
 
     points = out[0][0].cpu()
     faces = flame.faces_tensor.cpu()
-
     print(points.shape, faces.shape)
-
     timestamp = datetime.datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
     trimesh.Trimesh(vertices=points * 1000.0, faces=faces, process=False).export(f'./mesh_{timestamp}.obj')
-
-
     print(points, faces)
+
+
