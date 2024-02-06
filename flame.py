@@ -38,7 +38,6 @@ def to_np(array, dtype=np.float32):
         array = array.todense()
     return np.array(array, dtype=dtype)
 
-
 class Struct(object):
     def __init__(self, convert_to_numpy = False, **kwargs):
         print('len = ', len(kwargs.items()))
@@ -47,10 +46,10 @@ class Struct(object):
             if convert_to_numpy and not isinstance(val, str) and not isinstance(val, np.ndarray):
                 val = to_np(val)
 
-            # if isinstance(val, str):
-            #     print(key, val, '------------')
-            # else:
-            #     print(key, type(val), val.shape if hasattr(val, 'shape') else None)
+            if isinstance(val, str):
+                print(key, val, '------------')
+            else:
+                print(key, type(val), val.shape if hasattr(val, 'shape') else None)
 
             
             setattr(self, key, val)
@@ -65,11 +64,11 @@ class Struct(object):
         np.savez('model.npz',**np_arrays)
         np.savez_compressed('model_com.npz',**np_arrays)
         # check npz file
-        data = np.load('./mini/com.npz',allow_pickle=True)
-        print(type(data))
-        print(data.files)
-        for key in data:
-            print(key, type(data[key]))
+        # data = np.load('model.npz',allow_pickle=True)
+        # print(type(data))
+        # print(data.files)
+        # for key in data:
+        #     print(key, type(data[key]))
 
 
 class FLAME(nn.Module):
@@ -314,6 +313,7 @@ class FLAME(nn.Module):
                 landmarks: N X number of landmarks X 3
         """
         batch_size = shape_params.shape[0]
+        # print('batch_size = ', batch_size)
         if pose_params is None:
             pose_params = self.eye_pose.expand(batch_size, -1)
         if eye_pose_params is None:
@@ -321,9 +321,11 @@ class FLAME(nn.Module):
         if neck_pose_params is None:
             neck_pose_params = self.neck_pose.expand(batch_size, -1)
         if expression_params is None:
-            expression_params = torch.zeros(
-                [1, 100], dtype=self.dtype, requires_grad=False, device=self.neck_pose.device).expand(batch_size, -1)
-
+            expression_params = torch.zeros([1, 100], dtype=self.dtype, requires_grad=False, device=self.neck_pose.device).expand(batch_size, -1)
+        if shape_params.shape[0] < 300:
+            shape_params = torch.cat([shape_params, torch.zeros([batch_size, 300 - shape_params.shape[1]], dtype=self.dtype, requires_grad=False, device=self.neck_pose.device)], 1)
+        if expression_params.shape[0] < 100:
+            expression_params = torch.cat([expression_params, torch.zeros([batch_size, 100 - expression_params.shape[1]], dtype=self.dtype, requires_grad=False, device=self.neck_pose.device)], 1)
         betas = torch.cat([shape_params, expression_params], dim=1)
         full_pose = torch.cat(
             [pose_params[:, :3], neck_pose_params, pose_params[:, 3:], eye_pose_params], dim=1)
@@ -362,6 +364,35 @@ class Cfg:
         self.flame_lmk_embedding_path = './landmark_embedding.npy'
         self.n_shape = 300
 
+def infer(param_path, flame, device, max_frame = -1):
+    output = np.array([])
+    with open(param_path, 'rb') as f:
+        params = np.load(f, allow_pickle=True, encoding='latin1')
+        nframe = int(params.shape[0]/156)
+        if max_frame > 0:
+            nframe = min(nframe, max_frame)
+        print(f'nframe = {nframe}')
+        for i in range(nframe):
+            # exp, pose, shape
+            exp = params[i*156:i*156+50].reshape(1,-1)
+            pose = params[i*156+50:i*156+56].reshape(1,-1)
+            shape = params[i*156+56:i*156+156].reshape(1,-1)
+
+            exp = torch.from_numpy(exp).to(device)
+            pose = torch.from_numpy(pose).to(device)
+            shape = torch.from_numpy(shape).to(device)
+            
+            try:
+                out = flame.forward(expression_params=exp, pose_params=pose, shape_params=shape)
+            except:
+                print(f'frame {i} failed')
+                print(exp.shape, pose.shape, shape.shape)
+
+            output = np.append(output, out[0].cpu())
+            if i%100 == 0:
+                print(f'frame {i} done')
+                print(exp.shape, pose.shape, shape.shape)
+    return output
 
 if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -379,13 +410,17 @@ if __name__ == '__main__':
     flame = FLAME(cfg).to(device)
     flame.eval()
 
-    out = flame.forward(shape_params=torch.zeros([1, 300], dtype=torch.float32).to(device))
+    # out = flame.forward(shape_params=torch.zeros([1, 300], dtype=torch.float32).to(device))
 
-    points = out[0][0].cpu()
-    faces = flame.faces_tensor.cpu()
-    print(points.shape, faces.shape)
-    timestamp = datetime.datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
-    trimesh.Trimesh(vertices=points * 1000.0, faces=faces, process=False).export(f'./mesh_{timestamp}.obj')
-    print(points, faces)
+    # points = out[0][0].cpu()
+    # faces = flame.faces_tensor.cpu()
+    # print(points.shape, faces.shape)
+    # timestamp = datetime.datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
+    # trimesh.Trimesh(vertices=points * 1000.0, faces=faces, process=False).export(f'./mesh_{timestamp}.obj')
+    # print(points, faces)
 
+    points = infer('merged_params.npy', flame, device)
+    # write points to file 
+    print(points.shape)
+    np.save('points.npy', points)
 
