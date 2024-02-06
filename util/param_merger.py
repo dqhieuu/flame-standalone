@@ -38,5 +38,5 @@ def merger(folder, full = False):
         print(np.load(test_file4).shape)
     # => 156 params each
 
-path = '/home/huy/emoca/output/videoCheo/2/code/EMOCA_v2_lr_mse_20/processed_2024_Jan_08_15-27-34/2/results/EMOCA_v2_lr_mse_20'
-merger(path,True)
+path = '/home/huy/emoca/output/videoCheo/2/code/EMOCA_v2_lr_mse_20'
+merger(path)
